@@ -1,6 +1,6 @@
 import numpy as np
 from keras.models import Sequential
-from keras.layers import Dense, Activation, LSTM, Dropout
+from keras.layers import Dense, Activation, LSTM, Dropout, Input
 
 def window_transform_series(series, window_size):
     # containers for input/output pairs
@@ -59,19 +59,30 @@ def encode_io_pairs(text,chars, window_size,step_size):
         y[i, chars_to_indices[out_char]] = 1
     return X,y
 
-def get_deep_rnn(input_shape, dense_units = 80, LSTM_units_1=200, LSTM_units_2=200, dropout_p=0.2):
+def get_deep_rnn(input_shape, dense_units = 80, LSTM_units_1=200, LSTM_units_2=200, dropout_p=0.2, stateful=False, verbose=True):
     # Model definition
-    print("input shape = ",input_shape)
+    if verbose:
+        print("input shape = ",input_shape)
     model = Sequential()
-    model.add(LSTM(LSTM_units_1, input_shape=input_shape, return_sequences=True, 
-                   dropout=dropout_p, recurrent_dropout=dropout_p))
-    model.add(LSTM(LSTM_units_2, dropout=dropout_p, recurrent_dropout=dropout_p))
+    if (stateful):
+        model.add(LSTM(LSTM_units_1, 
+                       batch_input_shape=(1,input_shape[0],input_shape[1]), 
+                       return_sequences=True, 
+                       name='lstm_1',
+                       dropout=dropout_p, 
+                       recurrent_dropout=dropout_p, 
+                       stateful=stateful))
+    else:    
+        model.add(LSTM(LSTM_units_1, input_shape=input_shape, return_sequences=True, name='lstm_1',
+                       dropout=dropout_p, recurrent_dropout=dropout_p, stateful=stateful))
+    model.add(LSTM(LSTM_units_2, dropout=dropout_p, recurrent_dropout=dropout_p, name='lstm_2', stateful=stateful))
     model.add(Dense(dense_units, activation='softmax'))
     model.compile(loss='categorical_crossentropy', optimizer='rmsprop')
-    model.summary()
+    if verbose:
+        model.summary()
     return model
 
-def sample(a, temperature=1.0, verbose = False):
+def sample(a, temperature=1.0, verbose = False, return_dist=False):
     a = np.array(a)
     a = a/a.sum()
     a = a**(1/temperature)
@@ -79,8 +90,13 @@ def sample(a, temperature=1.0, verbose = False):
     sample_temp = a/p_sum 
     if verbose:
         print(sample_temp)
-    sample_temp = sample_temp*(sample_temp>1e-4)
-    return np.argmax(np.random.multinomial(1, sample_temp, 1))
+    #sample_temp = sample_temp*(sample_temp>1e-4)
+    choices = range(len(a))
+    if return_dist:
+        return np.random.choice(choices, p=sample_temp), sample_temp
+    else:
+        return np.random.choice(choices, p=sample_temp)
+    #return np.argmax(np.random.multinomial(1, sample_temp, 1))
 
 def chars_to_one_hot(sentence, chars, chars_to_indices, window_size):
     num_chars = len(chars)
@@ -89,5 +105,6 @@ def chars_to_one_hot(sentence, chars, chars_to_indices, window_size):
     for t, char in enumerate(sentence):
         if char not in chars_to_indices:
             char = ' '
-        X[0, t + size - len(sentence), chars_to_indices[char]] = 1
+        else:
+            X[0, t + size - len(sentence), chars_to_indices[char]] = 1
     return X
